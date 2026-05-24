@@ -1,26 +1,17 @@
 """
-High School Management System API
+Shared fixtures for FastAPI tests.
 
-A super simple FastAPI application that allows students to view and sign up
-for extracurricular activities at Mergington High School.
+This module provides fixtures that can be used across all test files.
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
-import os
-from pathlib import Path
+import pytest
+from copy import deepcopy
+from fastapi.testclient import TestClient
+from src import app as app_module
 
-app = FastAPI(title="Mergington High School API",
-              description="API for viewing and signing up for extracurricular activities")
 
-# Mount the static files directory
-current_dir = Path(__file__).parent
-app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
-          "static")), name="static")
-
-# In-memory activity database
-activities = {
+# Store original activities for restoration between tests
+ORIGINAL_ACTIVITIES = {
     "Chess Club": {
         "description": "Learn strategies and compete in chess tournaments",
         "schedule": "Fridays, 3:30 PM - 5:00 PM",
@@ -78,48 +69,51 @@ activities = {
 }
 
 
-@app.get("/")
-def root():
-    return RedirectResponse(url="/static/index.html")
+@pytest.fixture(autouse=True)
+def reset_activities():
+    """
+    Fixture that resets the activities database before each test.
+    
+    This ensures that each test gets a fresh copy of the activities data,
+    preventing test pollution (where one test's mutations affect another test).
+    
+    The autouse=True parameter means this fixture runs automatically for every test.
+    """
+    app_module.activities.clear()
+    app_module.activities.update(deepcopy(ORIGINAL_ACTIVITIES))
+    yield
+    # Cleanup after test
+    app_module.activities.clear()
+    app_module.activities.update(deepcopy(ORIGINAL_ACTIVITIES))
 
 
-@app.get("/activities")
-def get_activities():
-    return activities
+@pytest.fixture
+def client():
+    """
+    Fixture providing a FastAPI TestClient for making requests to the app.
+    """
+    return TestClient(app_module.app)
 
 
-@app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
-    """Sign up a student for an activity"""
-    # Validate activity exists
-    if activity_name not in activities:
-        raise HTTPException(status_code=404, detail="Activity not found")
-
-    # Get the specific activity
-    activity = activities[activity_name]
-
-    # Validate student is not already signed up
-    if email in activity["participants"]:
-        raise HTTPException(status_code=400, detail="Student already signed up for this activity")
-
-    # Add student
-    activity["participants"].append(email)
-    return {"message": f"Signed up {email} for {activity_name}"}
+@pytest.fixture
+def valid_email():
+    """
+    Fixture providing a valid test email that is not pre-registered.
+    """
+    return "test_student@mergington.edu"
 
 
-@app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
-    """Unregister a student from an activity"""
-    # Validate activity exists
-    if activity_name not in activities:
-        raise HTTPException(status_code=404, detail="Activity not found")
+@pytest.fixture
+def activity_name():
+    """
+    Fixture providing a valid activity name that exists in the database.
+    """
+    return "Chess Club"
 
-    # Get the specific activity
-    activity = activities[activity_name]
 
-    # Remove student if they exist
-    if email in activity["participants"]:
-        activity["participants"].remove(email)
-        return {"message": f"Removed {email} from {activity_name}"}
-    else:
-        raise HTTPException(status_code=404, detail="Participant not found")
+@pytest.fixture
+def nonexistent_activity():
+    """
+    Fixture providing an activity name that doesn't exist.
+    """
+    return "Nonexistent Club"
